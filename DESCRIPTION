@@ -1,0 +1,16 @@
+Package: PlayerPredictorMLB
+Title: Helps Predict Player Performance in the MLB
+Version: 0.0.0.9000
+Authors@R: 
+    person("Anthony", "Yaghmour", , "Anthony.Yaghmour@Northwestern.edu", role = c("aut", "cre"))
+Description: Package created for MSDS 457 Graduate Course at Northwestern University.
+  The package is designed to make player predictions and comparisons based off of MLB regular
+  seasons statistics from 2021 to 2026.
+License: MIT + file LICENSE
+Config/roxygen2/version: 8.1.0
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Depends: 
+    R (>= 3.5)
+Imports: scales, quadprog
+LazyData: true

@@ -1,0 +1,538 @@
+## Predictor names used by all three projection models
+.batting_projection_stats <- c(
+  "Age",
+  "xBA",
+  "xSLG",
+  "xwOBA",
+  "BB%",
+  "K%",
+  "ISO",
+  "wRC+",
+  "HR/FB",
+  "Barrel%",
+  "HardHit%"
+)
+
+## Create consecutive season training data
+.create_batting_training_data <- function(data, outcome) {
+
+  required_columns <- c(
+    "PlayerId",
+    "Season",
+    outcome,
+    .batting_projection_stats
+  )
+
+  missing_columns <- setdiff(required_columns, names(data))
+
+  if (length(missing_columns) > 0) {
+    stop(
+      "The following required columns are missing from `Batting`: ",
+      paste(missing_columns, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  ## Season Y contains predictors
+  season_y <- data[
+    ,
+    c("PlayerId", "Season", .batting_projection_stats),
+    drop = FALSE
+  ]
+
+  ## Season X contains outcomes
+  season_x <- data[
+    ,
+    c("PlayerId", "Season", outcome),
+    drop = FALSE
+  ]
+
+  ## Relabel Season X so it matches the prior season
+  season_x$Season <- season_x$Season - 1
+
+  names(season_x)[names(season_x) == outcome] <- "outcome"
+
+  ## Match each player to the immediately following season
+  training_data <- merge(
+    season_y,
+    season_x,
+    by = c("PlayerId", "Season")
+  )
+
+  ## Convert predictors and outcomes to numeric
+  numeric_columns <- c(.batting_projection_stats, "outcome")
+
+  training_data[numeric_columns] <- lapply(
+    training_data[numeric_columns],
+    function(x) as.numeric(as.character(x))
+  )
+
+  ## Keep only complete observations
+  training_data <- training_data[
+    stats::complete.cases(training_data[, numeric_columns, drop = FALSE]),
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(training_data) == 0) {
+    stop(
+      "No complete consecutive-season observations are available.",
+      call. = FALSE
+    )
+  }
+
+  training_data
+}
+
+.fit_batting_projection <- function(
+    data,
+    outcome,
+    primary_stat
+) {
+
+  training_data <- .create_batting_training_data(
+    data = data,
+    outcome = outcome
+  )
+
+  predictor_data <- training_data[
+    ,
+    .batting_projection_stats,
+    drop = FALSE
+  ]
+
+  ## Ensure every predictor is numeric
+  predictor_data[] <- lapply(
+    predictor_data,
+    function(x) as.numeric(as.character(x))
+  )
+
+  outcome_values <- as.numeric(
+    as.character(training_data$outcome)
+  )
+
+  ## Convert predictors to a numeric matrix
+  predictor_matrix <- as.matrix(predictor_data)
+
+  ## Calculate scaling information
+  predictor_means <- colMeans(predictor_matrix)
+
+  predictor_sds <- apply(
+    predictor_matrix,
+    2,
+    stats::sd
+  )
+
+  if (
+    any(!is.finite(predictor_sds)) ||
+    any(predictor_sds == 0)
+  ) {
+    stop(
+      "One or more predictors have no usable variation.",
+      call. = FALSE
+    )
+  }
+
+  ## Standardize all predictors
+  standardized_predictors <- scale(
+    predictor_matrix,
+    center = predictor_means,
+    scale = predictor_sds
+  )
+
+  ## Center the outcome
+  outcome_mean <- mean(outcome_values)
+
+  centered_outcome <- outcome_values - outcome_mean
+
+  predictor_names <- colnames(standardized_predictors)
+
+  primary_position <- match(
+    primary_stat,
+    predictor_names
+  )
+
+  if (is.na(primary_position)) {
+    stop(
+      "`primary_stat` was not found among the predictors.",
+      call. = FALSE
+    )
+  }
+
+  other_positions <- setdiff(
+    seq_along(predictor_names),
+    primary_position
+  )
+
+  number_of_predictors <- length(predictor_names)
+
+  ## Create coefficient constraints
+  constraint_columns <- list()
+
+  for (other_position in other_positions) {
+
+    ## Primary coefficient - 2 * other coefficient >= 0
+    positive_constraint <- rep(
+      0,
+      number_of_predictors
+    )
+
+    positive_constraint[primary_position] <- 1
+    positive_constraint[other_position] <- -2
+
+    constraint_columns[[length(constraint_columns) + 1]] <- positive_constraint
+
+    ## Primary coefficient + 2 * other coefficient >= 0
+    negative_constraint <- rep(
+      0,
+      number_of_predictors
+    )
+
+    negative_constraint[primary_position] <- 1
+    negative_constraint[other_position] <- 2
+
+    constraint_columns[[length(constraint_columns) + 1]] <- negative_constraint
+  }
+
+  constraint_matrix <- do.call(
+    cbind,
+    constraint_columns
+  )
+
+  constraint_values <- rep(
+    0,
+    ncol(constraint_matrix)
+  )
+
+  ## Construct the quadratic least-squares problem
+  ridge_adjustment <- 1e-8
+
+  quadratic_matrix <-
+    2 * crossprod(standardized_predictors) +
+    diag(ridge_adjustment, number_of_predictors)
+
+  linear_vector <- as.numeric(
+    2 * crossprod(
+      standardized_predictors,
+      centered_outcome
+    )
+  )
+
+  ## Estimate coefficients under the constraints
+  fitted_model <- quadprog::solve.QP(
+    Dmat = quadratic_matrix,
+    dvec = linear_vector,
+    Amat = constraint_matrix,
+    bvec = constraint_values,
+    meq = 0
+  )
+
+  coefficients <- fitted_model$solution
+
+  names(coefficients) <- predictor_names
+
+  list(
+    coefficients = coefficients,
+    intercept = outcome_mean,
+    means = predictor_means,
+    sds = predictor_sds
+  )
+}
+
+.predict_batting_stat <- function(
+    age,
+    xba,
+    xslg,
+    xwoba,
+    bb_pct,
+    k_pct,
+    iso,
+    wrc_plus,
+    hr_fb,
+    barrel_pct,
+    hardhit_pct,
+    outcome,
+    primary_stat,
+    data
+) {
+
+  input_values <- c(
+    "Age" = age,
+    "xBA" = xba,
+    "xSLG" = xslg,
+    "xwOBA" = xwoba,
+    "BB%" = bb_pct,
+    "K%" = k_pct,
+    "ISO" = iso,
+    "wRC+" = wrc_plus,
+    "HR/FB" = hr_fb,
+    "Barrel%" = barrel_pct,
+    "HardHit%" = hardhit_pct
+  )
+
+  if (
+    !is.numeric(input_values) ||
+    length(input_values) != length(.batting_projection_stats) ||
+    anyNA(input_values) ||
+    any(!is.finite(input_values))
+  ) {
+    stop(
+      "All projection inputs must be single finite numeric values.",
+      call. = FALSE
+    )
+  }
+
+  fitted_model <- .fit_batting_projection(
+    data = data,
+    outcome = outcome,
+    primary_stat = primary_stat
+  )
+
+  ## Convert percentage-point inputs to proportions when needed
+  percentage_stats <- c(
+    "BB%",
+    "K%",
+    "HR/FB",
+    "Barrel%",
+    "HardHit%"
+  )
+
+  for (stat in percentage_stats) {
+    if (
+      input_values[stat] > 1 &&
+      fitted_model$means[stat] <= 1
+    ) {
+      input_values[stat] <- input_values[stat] / 100
+    }
+  }
+
+  standardized_input <- (
+    input_values - fitted_model$means
+  ) / fitted_model$sds
+  prediction <-
+    fitted_model$intercept +
+    sum(
+      standardized_input *
+        fitted_model$coefficients[
+          .batting_projection_stats
+        ]
+    )
+
+  ## Keep the projected rate statistic between zero and one
+  prediction <- max(
+    0,
+    min(1, prediction)
+  )
+
+  round(
+    as.numeric(prediction),
+    3
+  )
+}
+
+#' Predict Batting Average
+#'
+#' Predicts a player's batting average based on statistics from their most
+#' recent season.
+#'
+#' Predictors are standardized before the regression model is fitted.
+#' The standardized coefficient for expected batting average (`xBA`) is
+#' constrained to be at least twice as large in absolute value as the
+#' next-largest predictor coefficient.
+#'
+#' @param age Player age during their most recent season.
+#' @param xba Expected batting average from the most recent season.
+#' @param xslg Expected slugging percentage from the most recent season.
+#' @param xwoba Expected weighted on-base average from the most recent season.
+#' @param bb_pct Walk percentage from the most recent season.
+#' @param k_pct Strikeout percentage from the most recent season.
+#' @param iso Isolated power from the most recent season.
+#' @param wrc_plus Weighted runs from the most recent season.
+#' @param hr_fb Home-run-to-fly-ball rate from the most recent season.
+#' @param barrel_pct Barrel percentage from the most recent season.
+#' @param hardhit_pct Hard-hit percentage from the most recent season.
+#' @param data Batting dataset used to fit the projection model.
+#'
+#' @return Predicted batting average for the following season as a numeric
+#' value rounded to three decimal places.
+#'
+#' @examples
+#' predict_avg(
+#'   age = 27,
+#'   xba = 0.261,
+#'   xslg = 0.358,
+#'   xwoba = 0.319,
+#'   bb_pct = 9.7,
+#'   k_pct = 16.1,
+#'   iso = 0.125,
+#'   wrc_plus = 111,
+#'   hr_fb = 11.1,
+#'   barrel_pct = 3.7,
+#'   hardhit_pct = 27.1
+#' )
+#'
+#' @export
+predict_avg <- function(
+    age,
+    xba,
+    xslg,
+    xwoba,
+    bb_pct,
+    k_pct,
+    iso,
+    wrc_plus,
+    hr_fb,
+    barrel_pct,
+    hardhit_pct,
+    data = Batting
+) {
+
+  .predict_batting_stat(
+    age = age,
+    xba = xba,
+    xslg = xslg,
+    xwoba = xwoba,
+    bb_pct = bb_pct,
+    k_pct = k_pct,
+    iso = iso,
+    wrc_plus = wrc_plus,
+    hr_fb = hr_fb,
+    barrel_pct = barrel_pct,
+    hardhit_pct = hardhit_pct,
+    outcome = "AVG",
+    primary_stat = "xBA",
+    data = data
+  )
+}
+
+#' Predict Slugging Percentage
+#'
+#' Predicts a player's slugging percentage based on statistics from their most
+#' recent season.
+#'
+#' Predictors are standardized before the regression model is fitted.
+#' The standardized coefficient for expected slugging percentage (`xSLG`) is
+#' constrained to be at least twice as large in absolute value as the
+#' next-largest predictor coefficient.
+#'
+#' @inheritParams predict_avg
+#'
+#' @return Predicted slugging percentage for the following season as a numeric
+#' value rounded to three decimal places.
+#'
+#' @examples
+#' predict_slg(
+#'   age = 27,
+#'   xba = 0.267,
+#'   xslg = 0.511,
+#'   xwoba = 0.378,
+#'   bb_pct = 12.7,
+#'   k_pct = 24.3,
+#'   iso = 0.271,
+#'   wrc_plus = 149,
+#'   hr_fb = 24.4,
+#'   barrel_pct = 14.3,
+#'   hardhit_pct = 48.6
+#' )
+#'
+#' @export
+predict_slg <- function(
+    age,
+    xba,
+    xslg,
+    xwoba,
+    bb_pct,
+    k_pct,
+    iso,
+    wrc_plus,
+    hr_fb,
+    barrel_pct,
+    hardhit_pct,
+    data = Batting
+) {
+
+  .predict_batting_stat(
+    age = age,
+    xba = xba,
+    xslg = xslg,
+    xwoba = xwoba,
+    bb_pct = bb_pct,
+    k_pct = k_pct,
+    iso = iso,
+    wrc_plus = wrc_plus,
+    hr_fb = hr_fb,
+    barrel_pct = barrel_pct,
+    hardhit_pct = hardhit_pct,
+    outcome = "SLG",
+    primary_stat = "xSLG",
+    data = data
+  )
+}
+
+#' Predict Weighted On-Base Average
+#'
+#' Predicts a player's weighted on-base average based on statistics from their
+#' most recent season.
+#'
+#' Predictors are standardized before the regression model is fitted.
+#' The standardized coefficient for expected weighted on-base average
+#' (`xwOBA`) is constrained to be at least twice as large in absolute value
+#' as the next-largest predictor coefficient.
+#'
+#' @inheritParams predict_avg
+#'
+#' @return Predicted weighted on-base average for the following season as a
+#' numeric value rounded to three decimal places.
+#'
+#' @examples
+#' predict_woba(
+#'   age = 27,
+#'   xba = 0.280,
+#'   xslg = 0.400,
+#'   xwoba = 0.331,
+#'   bb_pct = 9.2,
+#'   k_pct = 13.3,
+#'   iso = 0.096,
+#'   wrc_plus = 95,
+#'   hr_fb = 5.7,
+#'   barrel_pct = 6.9,
+#'   hardhit_pct = 44.3
+#' )
+#'
+#' @export
+predict_woba <- function(
+    age,
+    xba,
+    xslg,
+    xwoba,
+    bb_pct,
+    k_pct,
+    iso,
+    wrc_plus,
+    hr_fb,
+    barrel_pct,
+    hardhit_pct,
+    data = Batting
+) {
+
+  .predict_batting_stat(
+    age = age,
+    xba = xba,
+    xslg = xslg,
+    xwoba = xwoba,
+    bb_pct = bb_pct,
+    k_pct = k_pct,
+    iso = iso,
+    wrc_plus = wrc_plus,
+    hr_fb = hr_fb,
+    barrel_pct = barrel_pct,
+    hardhit_pct = hardhit_pct,
+    outcome = "wOBA",
+    primary_stat = "xwOBA",
+    data = data
+  )
+}
+
+##     ##
+## End ##
+##     ##

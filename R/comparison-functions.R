@@ -1,5 +1,5 @@
 ##                                          ##
-########## Standardization Function ########## 
+########## Standardization Function ##########
 ##                                          ##
 
 #' Calculate standardized similarity distances
@@ -12,13 +12,13 @@
 #'
 #' @keywords internal
 .calculate_similarity <- function(data, target, stats) {
-  
+
   ## Extract comparison columns
   comparison_data <- data[, stats, drop = FALSE]
-  
+
   ## Confirm that all comparison columns are numeric
   non_numeric <- stats[!vapply(comparison_data, is.numeric, logical(1))]
-  
+
   if (length(non_numeric) > 0) {
     stop(
       "The following comparison columns must be numeric: ",
@@ -26,7 +26,7 @@
       call. = FALSE
     )
   }
-  
+
   ## Calculate the mean and standard deviation of each statistic
   stat_means <- vapply(
     comparison_data,
@@ -34,14 +34,14 @@
     numeric(1),
     na.rm = TRUE
   )
-  
+
   stat_sds <- vapply(
     comparison_data,
     stats::sd,
     numeric(1),
     na.rm = TRUE
   )
-  
+
   ## Standardize every player-season
   standardized_data <- sweep(
     as.matrix(comparison_data),
@@ -49,17 +49,17 @@
     STATS = stat_means,
     FUN = "-"
   )
-  
+
   standardized_data <- sweep(
     standardized_data,
     MARGIN = 2,
     STATS = stat_sds,
     FUN = "/"
   )
-  
+
   ## Standardize the user-entered target using the same means and SDs
   standardized_target <- (target[stats] - stat_means) / stat_sds
-  
+
   ## Calculate Euclidean distance from each player-season to the target
   distances <- sqrt(
     rowSums(
@@ -71,15 +71,15 @@
       )^2
     )
   )
-  
+
   ## Rows missing any comparison statistic receive an undefined distance
   distances[!stats::complete.cases(comparison_data)] <- NA_real_
-  
+
   distances
 }
 
 ##                                            ##
-########## Batter Comparison Function ########## 
+########## Batter Comparison Function ##########
 ##                                            ##
 
 #' Find Similar Batter Seasons
@@ -100,6 +100,19 @@
 #'
 #' @return A data frame containing the most similar batter seasons.
 #'
+#' @examples
+#' batting_resuslts <- similar_batters(
+#'   bb_pct = 11,
+#'   k_pct = 27,
+#'   hr_fb = 24,
+#'   barrel_pct = 14,
+#'   hardhit_pct = 50,
+#'   xba = 0.265,
+#'   xslg = 0.500,
+#'   xwoba = 0.378,
+#'   n = 10
+#' )
+#'
 #' @export
 similar_batters <- function(
     bb_pct,
@@ -113,13 +126,13 @@ similar_batters <- function(
     n = 5,
     data = Batting
 ) {
-  
+
   if (!is.numeric(n) || length(n) != 1L || n < 1) {
     stop("`n` must be a positive number.", call. = FALSE)
   }
-  
+
   n <- as.integer(n)
-  
+
   comparison_stats <- c(
     "BB%",
     "K%",
@@ -130,7 +143,7 @@ similar_batters <- function(
     "xSLG",
     "xwOBA"
   )
-  
+
   target <- c(
     "BB%" = bb_pct,
     "K%" = k_pct,
@@ -141,7 +154,7 @@ similar_batters <- function(
     "xSLG" = xslg,
     "xwOBA" = xwoba
   )
-  
+
   if (
     !is.numeric(target) ||
     length(target) != length(comparison_stats) ||
@@ -153,7 +166,7 @@ similar_batters <- function(
       call. = FALSE
     )
   }
-  
+
   return_columns <- c(
     "Name",
     "Season",
@@ -168,9 +181,9 @@ similar_batters <- function(
     "RBI",
     "wRC+"
   )
-  
+
   missing_return_columns <- setdiff(return_columns, names(data))
-  
+
   if (length(missing_return_columns) > 0) {
     stop(
       "The following return columns are missing from `Batting`: ",
@@ -178,53 +191,45 @@ similar_batters <- function(
       call. = FALSE
     )
   }
-  
+
   data$.distance <- .calculate_similarity(
     data = data,
     target = target,
     stats = comparison_stats
   )
-  
+
   ## Remove rows that could not receive a distance
   results <- data[!is.na(data$.distance), , drop = FALSE]
-  
+
   ## Sort by similarity score
   results <- results[order(results$.distance), , drop = FALSE]
-  
+
   ## Keep the requested number of similar players
   results <- utils::head(results, n)
-  
+
   ## Select requested output columns
   results <- results[, return_columns, drop = FALSE]
-  
+
   ## Force rate stats to three decimal places
   rate_columns <- c("AVG", "OBP", "SLG", "wOBA")
-  
+
   results[rate_columns] <- lapply(
     results[rate_columns],
     function(x) sprintf("%.3f", x)
   )
-  
+
   rownames(results) <- NULL
-  
-  print(results, n = n)
+
+  ## Convert from tibble to standard data frame
+  results <- as.data.frame(results)
+
+  rownames(results) <- NULL
+
+  return(results)
 }
 
-## Example
-similar_batters(
-  bb_pct = 11,
-  k_pct = 27,
-  hr_fb = 24,
-  barrel_pct = 14,
-  hardhit_pct = 50,
-  xba = 0.265,
-  xslg = 0.500,
-  xwoba = 0.378,
-n = 10
-)
-
 ##                                             ##
-########## Pitcher Comparison Function ########## 
+########## Pitcher Comparison Function ##########
 ##                                             ##
 
 #' Find Similar Pitcher Seasons
@@ -250,6 +255,49 @@ n = 10
 #'
 #' @return A data frame containing the most similar pitcher seasons.
 #'
+#' @examples
+#' ## Traditional Starter Example
+#' starter_results <- similar_pitchers(
+#'   lob_pct = 81,
+#'   gb_pct = 43,
+#'   hr_fb = 9,
+#'   k_pct = 30,
+#'   bb_pct = 6,
+#'   barrel_pct = 7,
+#'   hardhit_pct = 38,
+#'   is_starter = 1,
+#'   is_reliever = 0,
+#'   n = 10
+#' )
+#'
+#' ## Traditional Reliever Example
+#' reliever_results <- similar_pitchers(
+#'   lob_pct = 77,
+#'   gb_pct = 52,
+#'   hr_fb = 13,
+#'   k_pct = 38,
+#'   bb_pct = 9,
+#'   barrel_pct = 6,
+#'   hardhit_pct = 42,
+#'   is_starter = 0,
+#'   is_reliever = 1,
+#'   n = 10
+#' )
+#'
+#' ## Swingman Example
+#' swingman_results <- similar_pitchers(
+#'   lob_pct = 72,
+#'   gb_pct = 35,
+#'   hr_fb = 7,
+#'   k_pct = 20,
+#'   bb_pct = 3,
+#'   barrel_pct = 5,
+#'   hardhit_pct = 30,
+#'   is_starter = 1,
+#'   is_reliever = 1,
+#'   n = 10
+#' )
+#'
 #' @export
 similar_pitchers <- function(
     lob_pct,
@@ -264,15 +312,15 @@ similar_pitchers <- function(
     n = 5,
     data = Pitching
 ) {
-  
+
   if (!is.numeric(n) || length(n) != 1L || n < 1) {
     stop("`n` must be a positive number.", call. = FALSE)
   }
-  
+
   n <- as.integer(n)
-  
+
   role_values <- c(is_starter, is_reliever)
-  
+
   if (
     anyNA(role_values) ||
     length(role_values) != 2L ||
@@ -283,17 +331,17 @@ similar_pitchers <- function(
       call. = FALSE
     )
   }
-  
+
   if (is_starter == 0 && is_reliever == 0) {
     stop(
       "At least one of `is_starter` or `is_reliever` must equal 1.",
       call. = FALSE
     )
   }
-  
+
   role_columns <- c("Is Starter", "Is Reliever")
   missing_role_columns <- setdiff(role_columns, names(data))
-  
+
   if (length(missing_role_columns) > 0) {
     stop(
       "The following role columns are missing from `Pitching`: ",
@@ -301,7 +349,7 @@ similar_pitchers <- function(
       call. = FALSE
     )
   }
-  
+
   comparison_stats <- c(
     "LOB%",
     "GB%",
@@ -311,7 +359,7 @@ similar_pitchers <- function(
     "Barrel%",
     "HardHit%"
   )
-  
+
   target <- c(
     "LOB%" = lob_pct,
     "GB%" = gb_pct,
@@ -321,7 +369,7 @@ similar_pitchers <- function(
     "Barrel%" = barrel_pct,
     "HardHit%" = hardhit_pct
   )
-  
+
   if (
     !is.numeric(target) ||
     length(target) != length(comparison_stats) ||
@@ -333,7 +381,7 @@ similar_pitchers <- function(
       call. = FALSE
     )
   }
-  
+
   return_columns <- c(
     "Name",
     "Season",
@@ -347,9 +395,9 @@ similar_pitchers <- function(
     "SO",
     "BB"
   )
-  
+
   missing_return_columns <- setdiff(return_columns, names(data))
-  
+
   if (length(missing_return_columns) > 0) {
     stop(
       "The following return columns are missing from `Pitching`: ",
@@ -357,102 +405,70 @@ similar_pitchers <- function(
       call. = FALSE
     )
   }
-  
+
   ## Keep only seasons with an exact role match
   role_match <- (
     data[["Is Starter"]] == is_starter &
       data[["Is Reliever"]] == is_reliever
   )
-  
+
   filtered_data <- data[
     !is.na(role_match) & role_match,
     ,
     drop = FALSE
   ]
-  
+
   if (nrow(filtered_data) == 0) {
     stop(
       "No pitcher seasons match the requested starter/reliever combination.",
       call. = FALSE
     )
   }
-  
+
   filtered_data$.distance <- .calculate_similarity(
     data = filtered_data,
     target = target,
     stats = comparison_stats
   )
-  
+
   ## Remove rows that could not receive a distance
   results <- filtered_data[
     !is.na(filtered_data$.distance),
     ,
     drop = FALSE
   ]
-  
+
   if (nrow(results) == 0) {
     stop(
       "No matching pitcher seasons have complete comparison statistics.",
       call. = FALSE
     )
   }
-  
+
   ## Sort by similarity score
   results <- results[order(results$.distance), , drop = FALSE]
-  
+
   ## Keep requested results
   results <- utils::head(results, n)
-  
+
+  ## Convert from tibble to standard data frame
+  results <- as.data.frame(results)
+
+  ## Round displayed pitching statistics
+  results$ERA <- round(as.numeric(results$ERA), 2)
+  results$WHIP <- round(as.numeric(results$WHIP), 2)
+
   ## Select requested output columns
   results <- results[, return_columns, drop = FALSE]
-  
+
+  ## Convert from tibble to standard data frame
+  results <- as.data.frame(results)
+
   rownames(results) <- NULL
-  
-  print(results, n = n)
+
+  results
 }
-
-## Traditional Starter Example
-similar_pitchers(
-  lob_pct = 81,
-  gb_pct = 43,
-  hr_fb = 9,
-  k_pct = 30,
-  bb_pct = 6,
-  barrel_pct = 7,
-  hardhit_pct = 38,
-  is_starter = 1,
-  is_reliever = 0,
-  n = 10
-)
-
-## Traditional Reliever Example
-similar_pitchers(
-  lob_pct = 77,
-  gb_pct = 52,
-  hr_fb = 13,
-  k_pct = 38,
-  bb_pct = 9,
-  barrel_pct = 6,
-  hardhit_pct = 42,
-  is_starter = 0,
-  is_reliever = 1,
-  n = 10
-)
-
-## Swingman Example
-similar_pitchers(
-  lob_pct = 72,
-  gb_pct = 35,
-  hr_fb = 7,
-  k_pct = 20,
-  bb_pct = 3,
-  barrel_pct = 5,
-  hardhit_pct = 30,
-  is_starter = 1,
-  is_reliever = 1,
-  n = 10
-)
 
 ##     ##
 ## End ##
-##     ##   
+##     ##
