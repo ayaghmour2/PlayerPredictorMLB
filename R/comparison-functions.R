@@ -42,6 +42,33 @@
     na.rm = TRUE
   )
 
+  ## Convert percentage-point to decimals
+  percentage_stats <- c(
+    "BB%",
+    "K%",
+    "HR/FB",
+    "Barrel%",
+    "HardHit%",
+    "LOB%",
+    "GB%"
+  )
+
+  percentage_stats <- intersect(
+    percentage_stats,
+    stats
+  )
+
+  for (stat in percentage_stats) {
+
+    if (
+      target[stat] > 1 &&
+      stat_means[stat] <= 1
+    ) {
+      target[stat] <- target[stat] / 100
+    }
+
+  }
+
   ## Standardize every player-season
   standardized_data <- sweep(
     as.matrix(comparison_data),
