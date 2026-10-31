@@ -128,7 +128,7 @@
 #' @return A data frame containing the most similar batter seasons.
 #'
 #' @examples
-#' batting_resuslts <- similar_batters(
+#' batting_results <- similar_batters(
 #'   bb_pct = 11,
 #'   k_pct = 27,
 #'   hr_fb = 24,

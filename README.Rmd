@@ -1,0 +1,102 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+
+devtools::load_all()
+```
+
+# PlayerPredictorMLB
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of PlayerPredictorMLB is to explore MLB statistics from recent
+seasons and use them to help predict future outcomes and value. The package
+focuses on expected stats, including functions that can help you predict a
+player's xBA, xSLG, xwOBA, xERA, and xFIP, find similar players, and calculate
+the monetary value of production based on a player's WAR.
+
+## Installation
+
+You can install the development version of PlayerPredictorMLB from [GitHub](https://github.com/) with:
+
+``` r
+# install.packages("pak")
+pak::pak("ayaghmour2/PlayerPredictorMLB")
+```
+## Data
+The data used for this package comes from https://www.fangraphs.com/. It covers batting and pitching statistics from the 2021 to 2026 MLB season. Each function gives a quick definition of the variables used, but for a more detailed definition, you can visity the glossary at https://library.fangraphs.com/. The default datasets are built into the functions, but users can use their own data instead, assuming they have all necessary variables. The prediction functions are built on data from 2021 to 2026, so it may not be useful using data from previous seasons, especially the shortened 2020 season.
+
+## Example
+
+This is a basic example which shows you how to find similar batters:
+
+```{r example 1}
+batting_results <- similar_batters(
+ bb_pct = 11,
+ k_pct = 27,
+ hr_fb = 24,
+ barrel_pct = 14,
+ hardhit_pct = 50,
+ xba = 0.265,
+ xslg = 0.500,
+ xwoba = 0.378,
+ n = 10
+)
+batting_results
+```
+
+
+This is a basic example which shows you how to find similar pitchers, specifically a traditional starting pitcher:
+
+```{r example 2}
+starter_results <- similar_pitchers(
+ lob_pct = 81,
+ gb_pct = 43,
+ hr_fb = 9,
+ k_pct = 30,
+ bb_pct = 6,
+ barrel_pct = 7,
+ hardhit_pct = 38,
+ is_starter = 1,
+ is_reliever = 0,
+ n = 10
+)
+starter_results
+```
+
+This is a basic example which would predict a player's wOBA:
+
+```{r example 3}
+example_woba <-predict_woba(
+ age = 27,
+ xba = 0.280,
+ xslg = 0.400,
+ xwoba = 0.331,
+ bb_pct = 9.2,
+ k_pct = 13.3,
+ iso = 0.096,
+ wrc_plus = 95,
+ hr_fb = 5.7,
+ barrel_pct = 6.9,
+ hardhit_pct = 44.3
+)
+example_woba
+```
+
+This is a basic example which would calculate a player's value based on WAR:
+
+```{r example 4}
+dollar_value <- WAR_dollar_value_calculator(war = 7, seasons = 3)
+dollar_value
+```

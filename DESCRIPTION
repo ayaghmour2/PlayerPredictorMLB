@@ -1,11 +1,14 @@
 Package: PlayerPredictorMLB
-Title: Helps Predict Player Performance in the MLB
+Title: MLB Player Performance Prediction and Compadevtools::build_readme()rison
 Version: 0.0.0.9000
 Authors@R: 
     person("Anthony", "Yaghmour", , "Anthony.Yaghmour@Northwestern.edu", role = c("aut", "cre"))
-Description: Package created for MSDS 457 Graduate Course at Northwestern University.
-  The package is designed to make player predictions and comparisons based off of MLB regular
-  seasons statistics from 2021 to 2026.
+Description: Provides functions for analyzing Major League Baseball
+    player performance using regular-season statistics from 2021 to 2026.
+    The package includes tools for expected-statistic prediction, player-season
+    similarity comparisons, and estimating monetary value based on Wins Above
+    Replacement (WAR). Developed for the MSDS 457 graduate course at
+    Northwestern University.
 License: MIT + file LICENSE
 Config/roxygen2/version: 8.1.0
 Encoding: UTF-8
