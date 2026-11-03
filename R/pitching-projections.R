@@ -1,0 +1,678 @@
+## Predictor names used by both pitching projection models
+.pitching_projection_stats <- c(
+  "Age",
+  "BABIP",
+  "HR/FB",
+  "xERA",
+  "xFIP",
+  "IP",
+  "LOB%",
+  "K%",
+  "BB%",
+  "Barrel%",
+  "HardHit%",
+  "Is Starter",
+  "Is Reliever"
+)
+
+## Create consecutive-season pitching training data
+.create_pitching_training_data <- function(data, outcome) {
+
+  required_columns <- c(
+    "PlayerId",
+    "Season",
+    outcome,
+    .pitching_projection_stats
+  )
+
+  missing_columns <- setdiff(
+    required_columns,
+    names(data)
+  )
+
+  if (length(missing_columns) > 0) {
+    stop(
+      "The following required columns are missing from `Pitching`: ",
+      paste(missing_columns, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  ## Season Y contains predictors
+  season_y <- data[
+    ,
+    c("PlayerId", "Season", .pitching_projection_stats),
+    drop = FALSE
+  ]
+
+  ## Season X contains outcomes
+  season_x <- data[
+    ,
+    c("PlayerId", "Season", outcome),
+    drop = FALSE
+  ]
+
+  ## Relabel Season X so it matches the prior season
+  season_x$Season <- season_x$Season - 1
+
+  names(season_x)[names(season_x) == outcome] <- "outcome"
+
+  ## Match each pitcher to the immediately following season
+  training_data <- merge(
+    season_y,
+    season_x,
+    by = c("PlayerId", "Season")
+  )
+
+  ## Convert predictors and outcomes to numeric
+  numeric_columns <- c(
+    .pitching_projection_stats,
+    "outcome"
+  )
+
+  training_data[numeric_columns] <- lapply(
+    training_data[numeric_columns],
+    function(x) as.numeric(as.character(x))
+  )
+
+  ## Keep only complete observations
+  training_data <- training_data[
+    stats::complete.cases(
+      training_data[, numeric_columns, drop = FALSE]
+    ),
+    ,
+    drop = FALSE
+  ]
+
+  ## Validate pitcher classification variables
+  valid_classifications <-
+    training_data[["Is Starter"]] %in% c(0, 1) &
+    training_data[["Is Reliever"]] %in% c(0, 1)
+
+  training_data <- training_data[
+    valid_classifications,
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(training_data) == 0) {
+    stop(
+      paste0(
+        "No complete consecutive-season observations are available ",
+        "with valid pitcher classifications."
+      ),
+      call. = FALSE
+    )
+  }
+
+  training_data
+}
+
+## Fit a constrained pitching projection model
+.fit_pitching_projection <- function(
+    data,
+    outcome,
+    primary_stat
+) {
+
+  training_data <- .create_pitching_training_data(
+    data = data,
+    outcome = outcome
+  )
+
+  predictor_data <- training_data[
+    ,
+    .pitching_projection_stats,
+    drop = FALSE
+  ]
+
+  ## Ensure every predictor is numeric
+  predictor_data[] <- lapply(
+    predictor_data,
+    function(x) as.numeric(as.character(x))
+  )
+
+  outcome_values <- as.numeric(
+    as.character(training_data$outcome)
+  )
+
+  ## Convert predictors to a numeric matrix
+  predictor_matrix <- as.matrix(predictor_data)
+
+  ## Calculate scaling information
+  predictor_means <- colMeans(predictor_matrix)
+
+  predictor_sds <- apply(
+    predictor_matrix,
+    2,
+    stats::sd
+  )
+
+  if (
+    any(!is.finite(predictor_sds)) ||
+    any(predictor_sds == 0)
+  ) {
+
+    unusable_predictors <- names(
+      predictor_sds[
+        !is.finite(predictor_sds) |
+          predictor_sds == 0
+      ]
+    )
+
+    stop(
+      paste0(
+        "The following predictors have no usable variation: ",
+        paste(unusable_predictors, collapse = ", "),
+        "."
+      ),
+      call. = FALSE
+    )
+  }
+
+  ## Standardize all predictors
+  standardized_predictors <- scale(
+    predictor_matrix,
+    center = predictor_means,
+    scale = predictor_sds
+  )
+
+  ## Center the outcome
+  outcome_mean <- mean(outcome_values)
+
+  centered_outcome <- outcome_values - outcome_mean
+
+  predictor_names <- colnames(
+    standardized_predictors
+  )
+
+  primary_position <- match(
+    primary_stat,
+    predictor_names
+  )
+
+  if (is.na(primary_position)) {
+    stop(
+      "`primary_stat` was not found among the predictors.",
+      call. = FALSE
+    )
+  }
+
+  other_positions <- setdiff(
+    seq_along(predictor_names),
+    primary_position
+  )
+
+  number_of_predictors <- length(
+    predictor_names
+  )
+
+  ## Create coefficient constraints
+  constraint_columns <- list()
+
+  for (other_position in other_positions) {
+
+    ## Primary coefficient - 2 * other coefficient >= 0
+    positive_constraint <- rep(
+      0,
+      number_of_predictors
+    )
+
+    positive_constraint[primary_position] <- 1
+    positive_constraint[other_position] <- -2
+
+    constraint_columns[[
+      length(constraint_columns) + 1
+    ]] <- positive_constraint
+
+    ## Primary coefficient + 2 * other coefficient >= 0
+    negative_constraint <- rep(
+      0,
+      number_of_predictors
+    )
+
+    negative_constraint[primary_position] <- 1
+    negative_constraint[other_position] <- 2
+
+    constraint_columns[[
+      length(constraint_columns) + 1
+    ]] <- negative_constraint
+  }
+
+  constraint_matrix <- do.call(
+    cbind,
+    constraint_columns
+  )
+
+  constraint_values <- rep(
+    0,
+    ncol(constraint_matrix)
+  )
+
+  ## Construct the quadratic least-squares problem
+  ridge_adjustment <- 1e-8
+
+  quadratic_matrix <-
+    2 * crossprod(standardized_predictors) +
+    diag(
+      ridge_adjustment,
+      number_of_predictors
+    )
+
+  linear_vector <- as.numeric(
+    2 * crossprod(
+      standardized_predictors,
+      centered_outcome
+    )
+  )
+
+  ## Estimate coefficients under the constraints
+  fitted_model <- quadprog::solve.QP(
+    Dmat = quadratic_matrix,
+    dvec = linear_vector,
+    Amat = constraint_matrix,
+    bvec = constraint_values,
+    meq = 0
+  )
+
+  coefficients <- fitted_model$solution
+
+  names(coefficients) <- predictor_names
+
+  list(
+    coefficients = coefficients,
+    intercept = outcome_mean,
+    means = predictor_means,
+    sds = predictor_sds
+  )
+}
+
+## Generate an ERA or FIP prediction
+.predict_pitching_stat <- function(
+    age,
+    babip,
+    hr_fb,
+    xera,
+    xfip,
+    ip,
+    lob_pct,
+    k_pct,
+    bb_pct,
+    barrel_pct,
+    hardhit_pct,
+    is_starter,
+    is_reliever,
+    outcome,
+    primary_stat,
+    data
+) {
+
+  ## Validate each input before combining them
+  supplied_inputs <- list(
+    age = age,
+    babip = babip,
+    hr_fb = hr_fb,
+    xera = xera,
+    xfip = xfip,
+    ip = ip,
+    lob_pct = lob_pct,
+    k_pct = k_pct,
+    bb_pct = bb_pct,
+    barrel_pct = barrel_pct,
+    hardhit_pct = hardhit_pct,
+    is_starter = is_starter,
+    is_reliever = is_reliever
+  )
+
+  valid_inputs <- vapply(
+    supplied_inputs,
+    function(x) {
+      is.numeric(x) &&
+        length(x) == 1 &&
+        !is.na(x) &&
+        is.finite(x)
+    },
+    logical(1)
+  )
+
+  if (!all(valid_inputs)) {
+    invalid_inputs <- names(
+      valid_inputs[!valid_inputs]
+    )
+
+    stop(
+      paste0(
+        "The following inputs must be single finite numeric values: ",
+        paste(invalid_inputs, collapse = ", "),
+        "."
+      ),
+      call. = FALSE
+    )
+  }
+
+  ## Validate the pitcher classification variables
+  if (!is_starter %in% c(0, 1)) {
+    stop(
+      "`is_starter` must be either 0 or 1.",
+      call. = FALSE
+    )
+  }
+
+  if (!is_reliever %in% c(0, 1)) {
+    stop(
+      "`is_reliever` must be either 0 or 1.",
+      call. = FALSE
+    )
+  }
+
+  ## The combinations (1, 0), (0, 1), and (1, 1) are allowed.
+  ## The combination (0, 0) is excluded because the pitcher would
+  ## have no role classification.
+  if (is_starter == 0 && is_reliever == 0) {
+    stop(
+      paste0(
+        "At least one pitcher classification must equal 1. ",
+        "Use (1, 0), (0, 1), or (1, 1)."
+      ),
+      call. = FALSE
+    )
+  }
+
+  input_values <- c(
+    "Age" = age,
+    "BABIP" = babip,
+    "HR/FB" = hr_fb,
+    "xERA" = xera,
+    "xFIP" = xfip,
+    "IP" = ip,
+    "LOB%" = lob_pct,
+    "K%" = k_pct,
+    "BB%" = bb_pct,
+    "Barrel%" = barrel_pct,
+    "HardHit%" = hardhit_pct,
+    "Is Starter" = is_starter,
+    "Is Reliever" = is_reliever
+  )
+
+  fitted_model <- .fit_pitching_projection(
+    data = data,
+    outcome = outcome,
+    primary_stat = primary_stat
+  )
+
+  ## Convert percentage-point inputs to proportions when needed
+  percentage_stats <- c(
+    "HR/FB",
+    "LOB%",
+    "K%",
+    "BB%",
+    "Barrel%",
+    "HardHit%"
+  )
+
+  for (stat in percentage_stats) {
+    if (
+      input_values[stat] > 1 &&
+      fitted_model$means[stat] <= 1
+    ) {
+      input_values[stat] <-
+        input_values[stat] / 100
+    }
+  }
+
+  ## Standardize the user's input using the training-data values
+  standardized_input <- (
+    input_values - fitted_model$means
+  ) / fitted_model$sds
+
+  prediction <-
+    fitted_model$intercept +
+    sum(
+      standardized_input *
+        fitted_model$coefficients[
+          .pitching_projection_stats
+        ]
+    )
+
+  ## ERA and FIP cannot be negative
+  prediction <- max(
+    0,
+    prediction
+  )
+
+  round(
+    as.numeric(prediction),
+    2
+  )
+}
+
+#' Predict Earned Run Average
+#'
+#' Predicts a pitcher's earned run average based on statistics from a specific
+#' season.
+#'
+#' Predictors are standardized before the regression model is fitted.
+#' The standardized coefficient for expected earned run average (`xERA`) is
+#' constrained to be at least twice as large in absolute value as every other
+#' predictor coefficient.
+#'
+#' Percentage inputs may be supplied as either proportions or percentage
+#' points. For example, a strikeout rate may be entered as either `0.225`
+#' or `22.5` and produce the same result.
+#'
+#' @param age Pitcher age during the specific season.
+#' @param babip Batting average on balls in play.
+#' @param hr_fb Home-run-to-fly-ball rate.
+#' @param xera Expected earned run average.
+#' @param xfip Expected fielding independent pitching.
+#' @param ip Innings pitched.
+#' @param lob_pct Left-on-base percentage.
+#' @param k_pct Strikeout percentage.
+#' @param bb_pct Walk percentage.
+#' @param barrel_pct Barrel percentage.
+#' @param hardhit_pct Hard-hit percentage.
+#' @param is_starter Numeric indicator equal to `1` if the pitcher can be
+#' classified as a starter and `0` otherwise.
+#' @param is_reliever Numeric indicator equal to `1` if the pitcher can be
+#' classified as a reliever and `0` otherwise.
+#' @param data Pitching dataset used to fit the projection model.
+#'
+#' @return Predicted earned run average for the next season as a numeric
+#' value rounded to two decimal places.
+#'
+#' @examples
+#' starter_example <-predict_era(
+#'   age = 25,
+#'   babip = 0.251,
+#'   hr_fb = 9.1,
+#'   xera = 2.85,
+#'   xfip = 2.86,
+#'   ip = 193.2,
+#'   lob_pct = 81.7,
+#'   k_pct = 31.4,
+#'   bb_pct = 6.4,
+#'   barrel_pct = 7.3,
+#'   hardhit_pct = 38.1,
+#'   is_starter = 1,
+#'   is_reliever = 0
+#' )
+#' starter_example
+#'
+#' reliever_example <-predict_era(
+#'   age = 26,
+#'   babip = 0.279,
+#'   hr_fb = 13,
+#'   xera = 2.52,
+#'   xfip = 2.36,
+#'   ip = 68.2,
+#'   lob_pct = 77,
+#'   k_pct = 37.8,
+#'   bb_pct = 9.8,
+#'   barrel_pct = 6.2,
+#'   hardhit_pct = 42.5,
+#'   is_starter = 0,
+#'   is_reliever = 1
+#' )
+#' reliever_example
+#'
+#' swingman_example <-predict_era(
+#'   age = 27,
+#'   babip = 0.272,
+#'   hr_fb = 15.2,
+#'   xera = 3.55,
+#'   xfip = 4.09,
+#'   ip = 132.2,
+#'   lob_pct = 73.3,
+#'   k_pct = 28.7,
+#'   bb_pct = 6.5,
+#'   barrel_pct = 9.9,
+#'   hardhit_pct = 36.9,
+#'   is_starter = 1,
+#'   is_reliever = 1
+#' )
+#' swingman_example
+#' @export
+predict_era <- function(
+    age,
+    babip,
+    hr_fb,
+    xera,
+    xfip,
+    ip,
+    lob_pct,
+    k_pct,
+    bb_pct,
+    barrel_pct,
+    hardhit_pct,
+    is_starter,
+    is_reliever,
+    data = Pitching
+) {
+
+  .predict_pitching_stat(
+    age = age,
+    babip = babip,
+    hr_fb = hr_fb,
+    xera = xera,
+    xfip = xfip,
+    ip = ip,
+    lob_pct = lob_pct,
+    k_pct = k_pct,
+    bb_pct = bb_pct,
+    barrel_pct = barrel_pct,
+    hardhit_pct = hardhit_pct,
+    is_starter = is_starter,
+    is_reliever = is_reliever,
+    outcome = "ERA",
+    primary_stat = "xERA",
+    data = data
+  )
+}
+
+#' Predict Fielding Independent Pitching
+#'
+#' Predicts a pitcher's fielding independent pitching based on statistics from
+#' their most recent season.
+#'
+#' Predictors are standardized before the regression model is fitted.
+#' The standardized coefficient for expected fielding independent pitching
+#' (`xFIP`) is constrained to be at least twice as large in absolute value as
+#' every other predictor coefficient.
+#'
+#' @inheritParams predict_era
+#'
+#' @return Predicted fielding independent pitching for the following season as
+#' a numeric value rounded to two decimal places.
+#'
+#' starter_example <-predict_fip(
+#'   age = 25,
+#'   babip = 0.251,
+#'   hr_fb = 9.1,
+#'   xera = 2.85,
+#'   xfip = 2.86,
+#'   ip = 193.2,
+#'   lob_pct = 81.7,
+#'   k_pct = 31.4,
+#'   bb_pct = 6.4,
+#'   barrel_pct = 7.3,
+#'   hardhit_pct = 38.1,
+#'   is_starter = 1,
+#'   is_reliever = 0
+#' )
+#' starter_example
+#'
+#' reliever_example <-predict_fip(
+#'   age = 26,
+#'   babip = 0.279,
+#'   hr_fb = 13,
+#'   xera = 2.52,
+#'   xfip = 2.36,
+#'   ip = 68.2,
+#'   lob_pct = 77,
+#'   k_pct = 37.8,
+#'   bb_pct = 9.8,
+#'   barrel_pct = 6.2,
+#'   hardhit_pct = 42.5,
+#'   is_starter = 0,
+#'   is_reliever = 1
+#' )
+#' reliever_example
+#'
+#' swingman_example <-predict_fip(
+#'   age = 27,
+#'   babip = 0.272,
+#'   hr_fb = 15.2,
+#'   xera = 3.55,
+#'   xfip = 4.09,
+#'   ip = 132.2,
+#'   lob_pct = 73.3,
+#'   k_pct = 28.7,
+#'   bb_pct = 6.5,
+#'   barrel_pct = 9.9,
+#'   hardhit_pct = 36.9,
+#'   is_starter = 1,
+#'   is_reliever = 1
+#' )
+#' swingman_example
+#'
+#' @export
+predict_fip <- function(
+    age,
+    babip,
+    hr_fb,
+    xera,
+    xfip,
+    ip,
+    lob_pct,
+    k_pct,
+    bb_pct,
+    barrel_pct,
+    hardhit_pct,
+    is_starter,
+    is_reliever,
+    data = Pitching
+) {
+
+  .predict_pitching_stat(
+    age = age,
+    babip = babip,
+    hr_fb = hr_fb,
+    xera = xera,
+    xfip = xfip,
+    ip = ip,
+    lob_pct = lob_pct,
+    k_pct = k_pct,
+    bb_pct = bb_pct,
+    barrel_pct = barrel_pct,
+    hardhit_pct = hardhit_pct,
+    is_starter = is_starter,
+    is_reliever = is_reliever,
+    outcome = "FIP",
+    primary_stat = "xFIP",
+    data = data
+  )
+}
+
+##     ##
+## End ##
+##     ##

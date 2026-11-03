@@ -2,6 +2,8 @@
 
 export(WAR_dollar_value_calculator)
 export(predict_avg)
+export(predict_era)
+export(predict_fip)
 export(predict_slg)
 export(predict_woba)
 export(similar_batters)

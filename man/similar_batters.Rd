@@ -46,7 +46,7 @@ Finds the batter seasons most similar to a user-supplied statistical
 profile using standardized Euclidean distance.
 }
 \examples{
-batting_resuslts <- similar_batters(
+batting_results <- similar_batters(
   bb_pct = 11,
   k_pct = 27,
   hr_fb = 24,

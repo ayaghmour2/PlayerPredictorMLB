@@ -127,6 +127,28 @@ example_woba
 #> [1] 0.325
 ```
 
+This is a basic example which would predict a player’s ERA:
+
+``` r
+example_era <-predict_era(
+  age = 25,
+  babip = 0.251,
+  hr_fb = 9.1,
+  xera = 2.85,
+  xfip = 2.86,
+  ip = 193.2,
+  lob_pct = 81.7,
+  k_pct = 31.4,
+  bb_pct = 6.4,
+  barrel_pct = 7.3,
+  hardhit_pct = 38.1,
+  is_starter = 1,
+  is_reliever = 0
+)
+example_era
+#> [1] 3.67
+```
+
 This is a basic example which would calculate a player’s value based on
 WAR:
 

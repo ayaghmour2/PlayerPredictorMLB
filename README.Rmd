@@ -94,9 +94,30 @@ example_woba <-predict_woba(
 example_woba
 ```
 
-This is a basic example which would calculate a player's value based on WAR:
+This is a basic example which would predict a player's ERA:
 
 ```{r example 4}
+example_era <-predict_era(
+  age = 25,
+  babip = 0.251,
+  hr_fb = 9.1,
+  xera = 2.85,
+  xfip = 2.86,
+  ip = 193.2,
+  lob_pct = 81.7,
+  k_pct = 31.4,
+  bb_pct = 6.4,
+  barrel_pct = 7.3,
+  hardhit_pct = 38.1,
+  is_starter = 1,
+  is_reliever = 0
+)
+example_era
+```
+
+This is a basic example which would calculate a player's value based on WAR:
+
+```{r example 5}
 dollar_value <- WAR_dollar_value_calculator(war = 7, seasons = 3)
 dollar_value
 ```
