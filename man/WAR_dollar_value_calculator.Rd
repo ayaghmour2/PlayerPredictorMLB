@@ -24,7 +24,9 @@ The first WAR is valued at $7 million, the second WAR is valued at
 $8.5 million, and all WAR above 2.0 is valued at $13 million.
 
 This formula comes from a FanGraphs article published in July 2026. The value
-is how much money the player would theoretically make on the open market.
+is how much money the player would theoretically make on the open market. The
+formula is tailored specifically for fWAR, but it will produce useful
+predictions for bWAR as well.
 }
 \examples{
 WAR_dollar_value_calculator(war = 7, seasons = 3)

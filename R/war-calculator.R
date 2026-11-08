@@ -7,7 +7,9 @@
 #' $8.5 million, and all WAR above 2.0 is valued at $13 million.
 #'
 #' This formula comes from a FanGraphs article published in July 2026. The value
-#' is how much money the player would theoretically make on the open market.
+#' is how much money the player would theoretically make on the open market. The
+#' formula is tailored specifically for fWAR, but it will produce useful
+#' predictions for bWAR as well.
 #'
 #' @param war Total WAR accumulated in a specific time frame.
 #' @param seasons Total seasons for the WAR.
