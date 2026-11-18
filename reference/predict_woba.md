@@ -1,0 +1,104 @@
+# Predict Weighted On-Base Average
+
+Predicts a player's weighted on-base average based on statistics from
+their most recent season.
+
+## Usage
+
+``` r
+predict_woba(
+  age,
+  xba,
+  xslg,
+  xwoba,
+  bb_pct,
+  k_pct,
+  iso,
+  wrc_plus,
+  hr_fb,
+  barrel_pct,
+  hardhit_pct,
+  data = Batting
+)
+```
+
+## Arguments
+
+- age:
+
+  Player age during their most recent season.
+
+- xba:
+
+  Expected batting average from the most recent season.
+
+- xslg:
+
+  Expected slugging percentage from the most recent season.
+
+- xwoba:
+
+  Expected weighted on-base average from the most recent season.
+
+- bb_pct:
+
+  Walk percentage from the most recent season.
+
+- k_pct:
+
+  Strikeout percentage from the most recent season.
+
+- iso:
+
+  Isolated power from the most recent season.
+
+- wrc_plus:
+
+  Weighted runs from the most recent season.
+
+- hr_fb:
+
+  Home-run-to-fly-ball rate from the most recent season.
+
+- barrel_pct:
+
+  Barrel percentage from the most recent season.
+
+- hardhit_pct:
+
+  Hard-hit percentage from the most recent season.
+
+- data:
+
+  Batting dataset used to fit the projection model.
+
+## Value
+
+Predicted weighted on-base average for the following season as a numeric
+value rounded to three decimal places.
+
+## Details
+
+Predictors are standardized before the regression model is fitted. The
+standardized coefficient for expected weighted on-base average (`xwOBA`)
+is constrained to be at least twice as large in absolute value as the
+next-largest predictor coefficient.
+
+## Examples
+
+``` r
+predict_woba(
+  age = 27,
+  xba = 0.280,
+  xslg = 0.400,
+  xwoba = 0.331,
+  bb_pct = 9.2,
+  k_pct = 13.3,
+  iso = 0.096,
+  wrc_plus = 95,
+  hr_fb = 5.7,
+  barrel_pct = 6.9,
+  hardhit_pct = 44.3
+)
+#> [1] 0.325
+```
