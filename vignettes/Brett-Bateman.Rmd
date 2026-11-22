@@ -1,0 +1,217 @@
+---
+title: "Brett-Bateman"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Brett-Bateman}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(PlayerPredictorMLB)
+```
+
+# Introduction
+
+For this vignette, we will walk through a real use case that this package can
+help with. We will be examining the post-deadline performance of Brett Bateman.
+As much as I want to believe it was real, it was a small sample, and the
+underlying numbers may not support what he did.
+
+It didn't take long for Bateman to make his MLB debut after being acquired for
+Kevin Gausman, and the 24-year-old outfielder appeared in 41 games. He quickly
+made his mark, hitting .329/.402/.424 with 28 runs, 11 RBIs, and a 1.9 WAR.
+Despite not being known for his power, he hit two home runs, including one at
+Rogers Centre before Vladimir Guerrero Jr. was able to snap his drought. He
+produced a 138 WRC+ and 6 DRS, showcasing excellent offensive and defensive
+value. If that can be sustained over a full season, the Jays have a future star
+on their hands, and it could be cool to see if the numbers support it!
+
+## Finding Similar Batters
+
+The first step to understand what Bateman accomplished is to find players that
+profile as similar to him. Your first thought may be that with a small sample,
+the projections wouldn't work, but all inputs of the function are rate stats.
+They may be sensitive to the small samples, but Bateman only having 28 runs or
+7 doubles won't be held against him.
+
+To find similar players, what is needed are Bateman's stats from FanGraphs. You
+need his BB%, K%, HR/FB rate, Barrel%, HardHit%, xBA, xSLG, and xwoBA. The
+last piece is the number of similar player-seasons you want to see.
+
+```{r}
+similar_bateman <- similar_batters(
+bb_pct = 9.9,
+k_pct = 19.3,
+hr_fb = 8.7,
+barrel_pct = 1.6,
+hardhit_pct = 19.8,
+xba = 0.268,
+xslg = 0.338,
+xwoba = 0.312,
+n = 10
+)
+
+similar_bateman
+```
+
+The results are not overly inspiring, but this is not surprising. Most light
+hitters don't have the best success, and being compared to Nolan Schanuel and
+Myles Straw is not exactly a glowing endorsement. That being said, there are a
+lot of positives. We see 2024 Jake McCarthy and Brice Turang, both of who had
+excellent 2026 seasons. Turang in particular, as he finished a distant third in
+MVP voting, and both these guys are capable defenders like Bateman. 2025 Sal
+Frelick, 2021 J.P. Crawford, and 2023 Ha-Seong Kim all had strong seasons as
+well, giving us a nice range of potential outcomes for Bateman.
+
+## WAR Calculator
+
+The next step is to get an approximate value of what Brett Bateman's performance
+would be worth. We can start with his two-month debut, as Bateman was worth 1.9
+fWAR.
+
+```{r}
+bateman_war <- WAR_dollar_value_calculator(war = 1.9, seasons = 1)
+
+bateman_war
+```
+
+$14,650,000 isn't too shabby for 41 games, as the young outfielder was worth
+far more than his minimum value salary. It's unreasonable to expect a center
+fielder to play a full 162 games, but 150 games is more realistic. At his 41
+game pace, that would equate to an even 7 WAR.
+
+```{r}
+bateman_150_war <- WAR_dollar_value_calculator(war = 7, seasons = 1)
+
+bateman_150_war
+```
+
+That's not quite PCA good, but if Bateman put up 7 WAR he'd be worth a whopping
+$80.5 million -- far above the highest annual value for any MLB player. No team
+would be willing to pay that, even for a Shohei Ohtani, and it's tough to expect
+that production from a second-year player.
+
+A better potential gauge of his value would be using the similar players, and we
+can set a range for his production. To do so, I took the lowest WAR, Charlie
+Blackmon's 0.1 in 2024, the highest WAR, Ha-Seong Kim's 4.2 in 2023, and the
+total WAR of all 10 player-seasons, which can be summed and treated as a
+player's 10-year career. That came out to 22.6.
+
+```{r}
+similar_low_war <- WAR_dollar_value_calculator(war = 0.1, seasons = 1)
+similar_high_war <- WAR_dollar_value_calculator(war = 4.2, seasons = 1)
+similar_total_war <- WAR_dollar_value_calculator(war = 22.6, seasons = 10)
+
+similar_low_war
+similar_high_war
+similar_total_war
+```
+
+On the low end, a $700k season from Bateman next year would be a disappointment,
+but the $44.1 million for a 4.2 WAR season would be considered a major win. Even
+the average $18.88 million season value would be acceptable, and is very similar
+to what Dalton Varsho produced in 2025. His 2.2 WAR was worth just a tad under
+at $18.1 million, though it was injuries that held him to 71 games and not a
+full season of production.
+
+## Predicting 2027 Stats
+
+The last thing to examine is what Bateman's 2025 performance says about his
+projected performance in 2027. We can use his stats to predict his average,
+slugging, and wOBA for 2027, with the model putting the most weight to the
+corresponding xStat.
+
+```{r}
+bateman_avg <-predict_avg(
+ age = 24,
+ xba = 0.268,
+ xslg = 0.338,
+ xwoba = 0.312,
+ bb_pct = 9.9,
+ k_pct = 19.3,
+ iso = 0.095,
+ wrc_plus = 138,
+ hr_fb = 8.7,
+ barrel_pct = 1.6,
+ hardhit_pct = 19.8
+)
+
+bateman_slg <-predict_slg(
+ age = 24,
+ xba = 0.268,
+ xslg = 0.338,
+ xwoba = 0.312,
+ bb_pct = 9.9,
+ k_pct = 19.3,
+ iso = 0.095,
+ wrc_plus = 138,
+ hr_fb = 8.7,
+ barrel_pct = 1.6,
+ hardhit_pct = 19.8
+)
+
+bateman_woba <-predict_woba(
+ age = 24,
+ xba = 0.268,
+ xslg = 0.338,
+ xwoba = 0.312,
+ bb_pct = 9.9,
+ k_pct = 19.3,
+ iso = 0.095,
+ wrc_plus = 138,
+ hr_fb = 8.7,
+ barrel_pct = 1.6,
+ hardhit_pct = 19.8
+)
+
+bateman_stats <-data.frame(
+  AVG = bateman_avg,
+  SLG = bateman_slg,
+  wOBA = bateman_woba
+)
+
+bateman_stats
+
+```
+
+The models predicted that for Bateman in 2027 he would hit .266 with a .346
+slugging and .308 wOBA, not the greatest overall production. It's not bad by
+any means, especially paired with his defense, but it also makes sense. Bateman
+slugged well over .400 despite a 1.6 Barrell% and 19.8 HardHit%. Those are both
+well below average, and since few players can succeed with those metrics, it
+makes sense that the models would not expect Bateman to produce a .329 average,
+.424 slugging, and .368 wOBA, because batters like him don't usually do that.
+And really no one hits .329!
+
+## Future Exploration
+
+This can be expanded upon using the newly predicted values. You can now find
+similar players using the predicted average, slugging, and wOBA as the xBA,
+xSLG, and see if that produces a different set of players. In most cases it
+should be similar, but when analyzing different players they may have large
+gaps between their season and the projections.
+
+Further exploration can also be done on pitchers instead, as the package has
+the ability to run a similar process on a pitcher. You can predict ERA and FIP,
+as the functions account for the role the pitcher had or is expected to have.
+Examples are provided with each function.
+
+## Conclusion
+
+As impressive as Brett Bateman's debut was, the tools in this package would not
+expect him to do as impressive in a full season. That's not to say he would not
+be valuable, as the ten most similar seasons produced an average of 2.26 WAR,
+and two of the players with similar seasons in 2024 were outstanding in 2026.
+Bateman could take a similar path, but regardless of if he keeps up this stellar
+production, his combination of speed, defense, and contact ability will make him
+an important piece for the 2027 Toronto Blue Jays.
+
+As long as the MLB doesn't spoil it with an extended lockout...

@@ -206,7 +206,8 @@ similar_batters <- function(
     "HR",
     "R",
     "RBI",
-    "wRC+"
+    "wRC+",
+    "WAR"
   )
 
   missing_return_columns <- setdiff(return_columns, names(data))
@@ -245,7 +246,11 @@ similar_batters <- function(
     function(x) sprintf("%.3f", x)
   )
 
-  rownames(results) <- NULL
+  ## Round WAR to 1 Decimal
+  results$WAR <- round(as.numeric(results$WAR), 1)
+
+  ## Round wRC+ to nearest whole number
+  results$'wRC+' <- round(as.numeric(results$'wRC+'), 1)
 
   ## Convert from tibble to standard data frame
   results <- as.data.frame(results)
@@ -420,7 +425,8 @@ similar_pitchers <- function(
     "ERA",
     "WHIP",
     "SO",
-    "BB"
+    "BB",
+    "WAR"
   )
 
   missing_return_columns <- setdiff(return_columns, names(data))
@@ -484,6 +490,9 @@ similar_pitchers <- function(
   ## Round displayed pitching statistics
   results$ERA <- round(as.numeric(results$ERA), 2)
   results$WHIP <- round(as.numeric(results$WHIP), 2)
+
+  ## Round WAR to 1 Decimal
+  results$WAR <- round(as.numeric(results$WAR), 1)
 
   ## Select requested output columns
   results <- results[, return_columns, drop = FALSE]
