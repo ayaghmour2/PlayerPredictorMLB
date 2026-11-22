@@ -183,3 +183,8 @@ dollar_value
 - [`similar_pitchers()`](https://ayaghmour2.github.io/PlayerPredictorMLB/reference/similar_pitchers.md)
   : Find Similar Pitcher Seasons
 
+# Articles
+
+### All vignettes
+
+- [Brett-Bateman](https://ayaghmour2.github.io/PlayerPredictorMLB/articles/Brett-Bateman.md):
